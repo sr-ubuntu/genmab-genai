@@ -266,10 +266,4 @@ terraform apply -var="environment=staging" -var="lambda_memory_mb=1024"
 | API Gateway REST API | `clinical-summarizer-prod` |
 | API Gateway Stage | `prod` |
 
----
 
-## Design Decisions
-
-See [docs/assumptions.md](docs/assumptions.md) for a full list of documented
-assumptions and trade-offs, including PHI handling, temperature selection,
-auth strategy, and model choice rationale.
