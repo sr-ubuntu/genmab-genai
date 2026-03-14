@@ -8,6 +8,10 @@ Run with: python mcp_db_server.py
 Transport: stdio (consumed as a subprocess by the agent)
 """
 from __future__ import annotations
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env file if it exists (does nothing if not found)
+
 import logging
 from contextlib import contextmanager
 

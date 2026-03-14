@@ -15,6 +15,10 @@ Example request:
     -d '{"query": "Summarize all lab results for patient 3"}'
 """
 from __future__ import annotations
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env file if it exists (does nothing if not found)
+
 import asyncio
 import logging
 import os

@@ -14,7 +14,14 @@ SETUP (one time only)
 1. Install dependencies:
    pip install -e ".[dev]"
 
-2. Create the SQLite database:
+2. Create environment file (Windows, Mac, and Linux - all the same):
+   cp .env.example .env
+
+   Then edit .env with your actual credentials:
+   - API_GATEWAY_URL or ANTHROPIC_API_KEY
+   - AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (if using AWS)
+
+3. Create the SQLite database:
    python -m clinical_summarizer.db.seed
 
    This creates clinical.db with 4 mock patients:
@@ -27,31 +34,35 @@ SETUP (one time only)
 OPTION 1: AWS API GATEWAY + BEDROCK (Production Setup)
 ================================================================================
 
-3a. Get your API Gateway URL:
+4a. Get your API Gateway URL and put it in .env:
     cd terraform
     terraform output api_url
 
-    Copy the output URL, e.g.:
-    https://abc123.execute-api.us-east-1.amazonaws.com/prod/summarize
+    Copy the output URL into your .env file:
+    API_GATEWAY_URL=https://abc123.execute-api.us-east-1.amazonaws.com/prod/summarize
 
-4a. Set the environment variable (PowerShell):
-    $env:API_GATEWAY_URL = "https://abc123.execute-api.us-east-1.amazonaws.com/prod/summarize"
-
-5a. Start the server:
+5a. Start the server (env vars auto-loaded from .env):
     uvicorn api_server:app --reload --port 8000
 
     You should see:
     INFO:     Uvicorn running on http://127.0.0.1:8000
+    [MCP-specific log]: Using AWS API Gateway backend: https://...
 
 ================================================================================
 OPTION 2: LOCAL ANTHROPIC API (Dev/Test Setup)
 ================================================================================
 
-3b. Set your Anthropic API key (PowerShell):
-    $env:ANTHROPIC_API_KEY = "sk-ant-YOUR_KEY_HERE"
+4b. Put your Anthropic API key in .env:
+    ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 
-4b. Start the server:
+    (Edit the .env file you created earlier)
+
+5b. Start the server (env vars auto-loaded from .env):
     uvicorn api_server:app --reload --port 8000
+
+    You should see:
+    INFO:     Uvicorn running on http://127.0.0.1:8000
+    [MCP-specific log]: Using Anthropic API backend (local)
 
 ================================================================================
 TEST THE API (in a new terminal)
