@@ -11,6 +11,12 @@ dependencies = [
     "boto3>=1.34.0",
     "pydantic>=2.6.0",
     "aws-lambda-powertools>=2.35.0",
+    "fastmcp>=0.1.0",
+    "anthropic>=0.40.0",
+    "sqlalchemy>=2.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "httpx>=0.27.0",
 ]
 
 [project.optional-dependencies]
@@ -21,6 +27,7 @@ dev = [
     "ruff>=0.3.0",
     "mypy>=1.9.0",
     "boto3-stubs[bedrock-runtime]>=1.34.0",
+    "pytest-asyncio>=0.23.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -29,7 +36,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "--cov=src/clinical_summarizer --cov-report=term-missing --cov-fail-under=90 -v"
+addopts = "--cov=src/clinical_summarizer --cov=mcp_db_server --cov=mcp_summarizer_server --cov=api_server --cov-report=term-missing --cov-fail-under=90 -v"
 
 [tool.coverage.run]
 source = ["src/clinical_summarizer"]

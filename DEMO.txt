@@ -1,0 +1,143 @@
+================================================================================
+CLINICAL SUMMARIZER DEMO - QUICK START GUIDE
+================================================================================
+
+This project has TWO ways to run the demo:
+
+1. WITH AWS API GATEWAY (Bedrock backend) - RECOMMENDED
+2. WITH LOCAL ANTHROPIC API (for testing without AWS)
+
+================================================================================
+SETUP (one time only)
+================================================================================
+
+1. Install dependencies:
+   pip install -e ".[dev]"
+
+2. Create the SQLite database:
+   python -m clinical_summarizer.db.seed
+
+   This creates clinical.db with 4 mock patients:
+   - Patient 1: Alice Mercer (3 records)
+   - Patient 2: David Okafor (2 records)
+   - Patient 3: Susan Park (3 records)
+   - Patient 4: James Rivera (2 records)
+
+================================================================================
+OPTION 1: AWS API GATEWAY + BEDROCK (Production Setup)
+================================================================================
+
+3a. Get your API Gateway URL:
+    cd terraform
+    terraform output api_url
+
+    Copy the output URL, e.g.:
+    https://abc123.execute-api.us-east-1.amazonaws.com/prod/summarize
+
+4a. Set the environment variable (PowerShell):
+    $env:API_GATEWAY_URL = "https://abc123.execute-api.us-east-1.amazonaws.com/prod/summarize"
+
+5a. Start the server:
+    uvicorn api_server:app --reload --port 8000
+
+    You should see:
+    INFO:     Uvicorn running on http://127.0.0.1:8000
+
+================================================================================
+OPTION 2: LOCAL ANTHROPIC API (Dev/Test Setup)
+================================================================================
+
+3b. Set your Anthropic API key (PowerShell):
+    $env:ANTHROPIC_API_KEY = "sk-ant-YOUR_KEY_HERE"
+
+4b. Start the server:
+    uvicorn api_server:app --reload --port 8000
+
+================================================================================
+TEST THE API (in a new terminal)
+================================================================================
+
+6. Health check:
+   curl http://localhost:8000/health
+
+7. List all patients:
+   curl -X POST http://localhost:8000/query `
+     -H "Content-Type: application/json" `
+     -d '{"query": "List all patients in the database"}'
+
+8. Get patient details:
+   curl -X POST http://localhost:8000/query `
+     -H "Content-Type: application/json" `
+     -d '{"query": "Show me patient 2 and their clinical records"}'
+
+9. Summarize lab results:
+   curl -X POST http://localhost:8000/query `
+     -H "Content-Type: application/json" `
+     -d '{"query": "Summarize all lab results for patient 1"}'
+
+10. Full workflow (fetch + summarize):
+    curl -X POST http://localhost:8000/query `
+      -H "Content-Type: application/json" `
+      -d '{"query": "Get imaging reports for patient 4 and summarize them"}'
+
+================================================================================
+RUN TESTS
+================================================================================
+
+All tests (no AWS credentials needed - HTTP calls are mocked):
+pytest tests/ -v --cov
+
+Specific test files:
+pytest tests/test_api_gateway_client.py -v
+pytest tests/test_mcp_summarizer_server.py -v
+pytest tests/db/ -v
+
+================================================================================
+ARCHITECTURE OVERVIEW
+================================================================================
+
+User Query (REST API)
+    ↓
+FastAPI Server (api_server.py)
+    ↓
+MCP Client + Claude
+    ├── DB MCP Server (mcp_db_server.py)
+    │   └── SQLite database queries
+    └── Summarizer MCP Server (mcp_summarizer_server.py)
+        ├── IF API_GATEWAY_URL set → HTTP call to AWS API Gateway
+        │                           → Lambda → Bedrock
+        └── ELSE → Local Anthropic API call
+
+================================================================================
+ENVIRONMENT VARIABLES
+================================================================================
+
+API_GATEWAY_URL
+  - Set this to use your AWS-deployed endpoint
+  - Takes priority over ANTHROPIC_API_KEY
+  - Example: https://abc123.execute-api.us-east-1.amazonaws.com/prod/summarize
+
+ANTHROPIC_API_KEY
+  - Set this for local/dev testing (no AWS needed)
+  - Only used if API_GATEWAY_URL not set
+  - Example: sk-ant-abc123...
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+"Neither API_GATEWAY_URL nor ANTHROPIC_API_KEY environment variables are set"
+  → Set one of the env vars above before starting the server
+
+"Connection refused" to API Gateway
+  → Check the URL is correct: terraform output api_url
+  → Ensure AWS Lambda is deployed: terraform apply
+
+"Import error" for httpx or other packages
+  → Run: pip install -e ".[dev]"
+
+Tests fail with "module not found"
+  → Run: pip install -e ".[dev]" again
+  → Ensure you're in the project root directory
+
+================================================================================

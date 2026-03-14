@@ -6,27 +6,27 @@ import logging
 
 from clinical_summarizer.core import PromptBuilder, SummaryParser
 from clinical_summarizer.models import ClinicalSummary, ClinicalSummaryRequest
-from clinical_summarizer.bedrock_client import BedrockRepository
+from clinical_summarizer.protocols import LLMRepository
 
 
 class SummarizationService:
     """Orchestrates the end-to-end clinical text summarization pipeline.
 
     Accepts a validated request, delegates prompt construction to
-    :class:`PromptBuilder`, the Bedrock call to :class:`BedrockRepository`,
+    :class:`PromptBuilder`, the LLM call to any :class:`LLMRepository` backend,
     and response parsing to :class:`SummaryParser`. All collaborators are
     injected so the service is fully testable without AWS credentials.
 
     Args:
-        repository: Bedrock integration responsible for all AWS I/O.
-        prompt_builder: Builds the Bedrock messages payload.
-        summary_parser: Parses the raw Bedrock response into a structured summary.
+        repository: LLM integration (Bedrock or Anthropic) responsible for all API I/O.
+        prompt_builder: Builds the messages payload for the LLM.
+        summary_parser: Parses the raw LLM response into a structured summary.
         logger: Standard Python logger used for structured log output.
     """
 
     def __init__(
         self,
-        repository: BedrockRepository,
+        repository: LLMRepository,
         prompt_builder: PromptBuilder,
         summary_parser: SummaryParser,
         logger: logging.Logger,
