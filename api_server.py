@@ -28,6 +28,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 import anthropic
+from mcp import stdio_client, StdioServerParameters, ClientSession
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -77,85 +78,136 @@ async def _run_agent(query: str) -> str:
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    # Define MCP server configurations
-    db_server = {
-        "type": "stdio",
-        "command": "python",
-        "args": ["mcp_db_server.py"],
-    }
-    summarizer_server = {
-        "type": "stdio",
-        "command": "python",
-        "args": ["mcp_summarizer_server.py"],
-    }
+    # Define MCP server configurations for stdio
+    db_server = StdioServerParameters(
+        command="python",
+        args=["mcp_db_server.py"],
+    )
+    summarizer_server = StdioServerParameters(
+        command="python",
+        args=["mcp_summarizer_server.py"],
+    )
 
     # Connect to both MCP servers and run the agentic loop
     try:
-        async with client.beta.mcp.connect_mcp_servers([db_server, summarizer_server]) as mcp_connection:
-            # Initial message to Claude
-            messages = [
-                {
-                    "role": "user",
-                    "content": query,
-                }
-            ]
+        db_transport = stdio_client(db_server)
+        summarizer_transport = stdio_client(summarizer_server)
 
-            system_prompt = (
-                "You are a clinical data assistant. You have access to tools to query a patient "
-                "database and summarize clinical documents. When asked about patients or their records, "
-                "always retrieve data using the available tools before responding. "
-                "Present summaries in a clear, structured format. Be concise and professional."
-            )
+        async with db_transport as (db_read, db_write):
+            async with summarizer_transport as (summarizer_read, summarizer_write):
+                # Wrap streams in ClientSession and initialize
+                async with ClientSession(db_read, db_write) as db_session:
+                    async with ClientSession(summarizer_read, summarizer_write) as summarizer_session:
+                        # Initialize both sessions
+                        await db_session.initialize()
+                        await summarizer_session.initialize()
 
-            # Agentic loop: keep calling Claude until it returns a final response
-            while True:
-                response = await mcp_connection.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=4096,
-                    system=system_prompt,
-                    messages=messages,
-                )
+                        # List available tools from both servers
+                        db_tools_response = await db_session.list_tools()
+                        summarizer_tools_response = await summarizer_session.list_tools()
 
-                # Check if Claude is done (no tool calls)
-                if response.stop_reason == "end_turn":
-                    # Extract the final text response
-                    for content in response.content:
-                        if hasattr(content, "text"):
-                            return content.text
-                    # Fallback if no text found
-                    return "No response generated"
+                        # Convert MCP tools to Anthropic tool format
+                        tools = []
+                        for tool in db_tools_response.tools:
+                            tools.append({
+                                "name": tool.name,
+                                "description": tool.description or "No description available",
+                                "input_schema": tool.inputSchema or {"type": "object", "properties": {}},
+                            })
+                        for tool in summarizer_tools_response.tools:
+                            tools.append({
+                                "name": tool.name,
+                                "description": tool.description or "No description available",
+                                "input_schema": tool.inputSchema or {"type": "object", "properties": {}},
+                            })
 
-                # Process tool calls
-                tool_calls_made = False
-                for content in response.content:
-                    if content.type == "tool_use":
-                        tool_calls_made = True
-                        # Claude made a tool call; we need to call the tool and add result
-                        # The MCP connection handles actual tool invocation
-                        # We just need to add Claude's response to messages and continue the loop
-                        break
+                        # Initial message to Claude
+                        messages = [
+                            {
+                                "role": "user",
+                                "content": query,
+                            }
+                        ]
 
-                # Add Claude's response (including tool calls) to message history
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": response.content,
-                    }
-                )
+                        system_prompt = (
+                            "You are a clinical data assistant. You have access to tools to query a patient "
+                            "database and summarize clinical documents. When asked about patients or their records, "
+                            "always retrieve data using the available tools before responding. "
+                            "Present summaries in a clear, structured format. Be concise and professional."
+                        )
 
-                # If no tool calls were made, Claude is responding with text
-                if not tool_calls_made:
-                    # Find the text content and return it
-                    for content in response.content:
-                        if hasattr(content, "text"):
-                            return content.text
-                    return "No response generated"
+                        # Agentic loop: keep calling Claude until it returns a final response
+                        while True:
+                            response = client.messages.create(
+                                model="claude-sonnet-4-6",
+                                max_tokens=4096,
+                                system=system_prompt,
+                                tools=tools,
+                                messages=messages,
+                            )
 
-                # Note: Tool results are automatically added by the MCP connection
-                # when we call messages.create again in the next iteration
+                            # Check if Claude is done (no tool calls)
+                            if response.stop_reason == "end_turn":
+                                # Extract the final text response
+                                for content in response.content:
+                                    if hasattr(content, "text"):
+                                        return content.text
+                                # Fallback if no text found
+                                return "No response generated"
+
+                            # Process tool calls
+                            tool_calls_made = False
+                            tool_results = []
+                            for content in response.content:
+                                if content.type == "tool_use":
+                                    tool_calls_made = True
+                                    # Call the appropriate MCP server
+                                    tool_name = content.name
+                                    tool_input = content.input
+
+                                    try:
+                                        # Determine which server handles this tool
+                                        db_tool_names = {t.name for t in db_tools_response.tools}
+                                        if tool_name in db_tool_names:
+                                            result = await db_session.call_tool(tool_name, tool_input)
+                                        else:
+                                            result = await summarizer_session.call_tool(tool_name, tool_input)
+
+                                        tool_results.append({
+                                            "type": "tool_result",
+                                            "tool_use_id": content.id,
+                                            "content": str(result.content),
+                                        })
+                                    except Exception as e:
+                                        logger.error(f"Tool call error: {str(e)}")
+                                        tool_results.append({
+                                            "type": "tool_result",
+                                            "tool_use_id": content.id,
+                                            "content": f"Error: {str(e)}",
+                                            "is_error": True,
+                                        })
+
+                            # Add Claude's response (including tool calls) to message history
+                            messages.append({
+                                "role": "assistant",
+                                "content": response.content,
+                            })
+
+                            # If tool calls were made, add results and continue
+                            if tool_calls_made and tool_results:
+                                messages.append({
+                                    "role": "user",
+                                    "content": tool_results,
+                                })
+                            else:
+                                # No tool calls, find and return the text response
+                                for content in response.content:
+                                    if hasattr(content, "text"):
+                                        return content.text
+                                return "No response generated"
 
     except Exception as e:
-        logger.error(f"MCP agent error: {str(e)}")
+        logger.error(f"MCP agent error: {str(e)}", exc_info=True)
         raise RuntimeError(f"Agent failed to process query: {str(e)}") from e
 
 
